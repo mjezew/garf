@@ -6,18 +6,29 @@ defmodule Garf.GraphCache do
   end
 
   def get_label(index) do
-    GenServer.call(__MODULE__, {:get_label, index})
+    case :ets.lookup(__MODULE__, {:labels, index}) do
+      [{_key, value}] -> value
+      # TODO: implement refresh
+      [] -> nil
+    end
   end
 
   def get_property(index) do
-    GenServer.call(__MODULE__, {:get_property, index})
+    case :ets.lookup(__MODULE__, {:property_keys, index}) do
+      [{_key, value}] -> value
+      [] -> nil
+    end
   end
 
   def get_relationship(index) do
-    GenServer.call(__MODULE__, {:get_relationship, index})
+    case :ets.lookup(__MODULE__, {:relationship_types, index}) do
+      [{_key, value}] -> value
+      [] -> nil
+    end
   end
 
   def init(opts) do
+    :ets.new(__MODULE__, [:named_table, :protected, read_concurrency: true])
     {:ok, %{redix: opts[:redix]}, {:continue, :load_initial_cache}}
   end
 
@@ -32,23 +43,6 @@ defmodule Garf.GraphCache do
     end
   end
 
-  # TODO: fetch label if not in cache
-  def handle_call({:get_label, index}, _caller, %{labels: labels} = state) do
-    {:reply, Map.get(labels, index), state}
-  end
-
-  def handle_call({:get_property, index}, _caller, %{property_keys: properties} = state) do
-    {:reply, Map.get(properties, index), state}
-  end
-
-  def handle_call(
-        {:get_relationship, index},
-        _caller,
-        %{relationship_types: relationship_types} = state
-      ) do
-    {:reply, Map.get(relationship_types, index), state}
-  end
-
   def refresh(identifier, %{redix: redix} = state) do
     with redis_identifier <- get_redis_identifier(identifier),
          {:ok, [[_identifier], labels, _stats]} <-
@@ -56,9 +50,10 @@ defmodule Garf.GraphCache do
       labels =
         labels
         |> Enum.with_index()
-        |> Enum.reduce(%{}, fn {[label], index}, acc -> Map.put(acc, index, label) end)
+        |> Enum.map(fn {[label], index} -> {{identifier, index}, label} end)
 
-      state = Map.put(state, identifier, labels)
+      :ets.insert(__MODULE__, labels)
+
       {:ok, state}
     else
       error ->
