@@ -14,7 +14,6 @@ defmodule Garf.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      mod: {Garf.Application, []},
       extra_applications: [:logger]
     ]
   end
@@ -22,7 +21,7 @@ defmodule Garf.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:redix, "~> 1.1", optional: true}
+      {:redix, "~> 1.1"}
     ]
   end
 end
