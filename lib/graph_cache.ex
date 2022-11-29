@@ -6,24 +6,21 @@ defmodule Garf.GraphCache do
   end
 
   def get_label(index) do
-    case :ets.lookup(__MODULE__, {:labels, index}) do
-      [{_key, value}] -> value
-      # TODO: implement refresh
-      [] -> nil
-    end
+    cache_lookup(:labels, index)
   end
 
   def get_property(index) do
-    case :ets.lookup(__MODULE__, {:property_keys, index}) do
-      [{_key, value}] -> value
-      [] -> nil
-    end
+    cache_lookup(:property_keys, index)
   end
 
   def get_relationship(index) do
-    case :ets.lookup(__MODULE__, {:relationship_types, index}) do
+    cache_lookup(:relationship_types, index)
+  end
+
+  defp cache_lookup(identifier, index) do
+    case :ets.lookup(__MODULE__, {identifier, index}) do
       [{_key, value}] -> value
-      [] -> nil
+      [] -> GenServer.call(__MODULE__, {:refresh, identifier, index})
     end
   end
 
@@ -33,9 +30,9 @@ defmodule Garf.GraphCache do
   end
 
   def handle_continue(:load_initial_cache, state) do
-    with {:ok, state} <- refresh(:labels, state),
-         {:ok, state} <- refresh(:relationship_types, state),
-         {:ok, state} <- refresh(:property_keys, state) do
+    with :ok <- refresh(:labels, state),
+         :ok <- refresh(:relationship_types, state),
+         :ok <- refresh(:property_keys, state) do
       {:noreply, state}
     else
       error ->
@@ -43,22 +40,31 @@ defmodule Garf.GraphCache do
     end
   end
 
-  def refresh(identifier, %{redix: redix} = state) do
-    with redis_identifier <- get_redis_identifier(identifier),
-         {:ok, [[_identifier], labels, _stats]} <-
-           Redix.command(redix, ["GRAPH.QUERY", "Garf", "CALL db.#{redis_identifier}()"]) do
-      labels =
-        labels
-        |> Enum.with_index()
-        |> Enum.map(fn {[label], index} -> {{identifier, index}, label} end)
+  def handle_call({:refresh, identifier, index}, _caller, state) do
+    case :ets.lookup(__MODULE__, {identifier, index}) do
+      [] ->
+        refresh(identifier, state)
+        {:reply, cache_lookup(identifier, index), state}
 
-      :ets.insert(__MODULE__, labels)
-
-      {:ok, state}
-    else
-      error ->
-        error
+      [{_key, value}] ->
+        {:reply, value, state}
     end
+  end
+
+  def refresh(identifier, %{redix: redix}) do
+    redis_identifier = get_redis_identifier(identifier)
+
+    {:ok, [[_identifier], labels, _stats]} =
+      Redix.command(redix, ["GRAPH.QUERY", "Garf", "CALL db.#{redis_identifier}()"])
+
+    labels =
+      labels
+      |> Enum.with_index()
+      |> Enum.map(fn {[label], index} -> {{identifier, index}, label} end)
+
+    :ets.insert(__MODULE__, labels)
+
+    :ok
   end
 
   defp get_redis_identifier(:labels), do: "labels"
