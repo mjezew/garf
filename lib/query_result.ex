@@ -24,20 +24,24 @@ defmodule Garf.Graph.QueryResult do
     |> Enum.map(fn result ->
       Enum.map(result, fn
         [_is_edge = 7, [internal_id, type_id, source_node_id, destination_node_id, properties]] ->
+          relationship = GraphCache.get_relationship(type_id)
+
           %{
             internal_id: internal_id,
-            properties: parse_properties(properties),
+            properties: build_edge(relationship, properties),
             source_node_id: source_node_id,
             destination_node_id: destination_node_id,
-            relationship_type: GraphCache.get_relationship(type_id)
+            relationship_type: relationship
           }
 
         # NOTE handle multiple label indexes when Redis supports it
         [_is_node = 8, [internal_id, [label_index], properties]] ->
+          label = GraphCache.get_label(label_index)
+
           %{
             internal_id: internal_id,
-            label: GraphCache.get_label(label_index),
-            properties: parse_properties(properties)
+            label: label,
+            properties: build_node(label, properties)
           }
 
         _other ->
@@ -46,12 +50,28 @@ defmodule Garf.Graph.QueryResult do
     end)
   end
 
-  defp parse_properties(properties) do
-    properties
-    |> Enum.map(fn [property_index, _type, value] ->
-      {GraphCache.get_property(property_index), value}
-    end)
-    |> Map.new()
+  defp build_node(label, properties) do
+    params =
+      properties
+      |> Enum.map(fn [property_index, _type, value] ->
+        {GraphCache.get_property(property_index), value}
+      end)
+      |> Map.new()
+
+    node_schema = GraphCache.get_node(label)
+    node_schema.from_graph(params)
+  end
+
+  defp build_edge(relationship, properties) do
+    params =
+      properties
+      |> Enum.map(fn [property_index, _type, value] ->
+        {GraphCache.get_property(property_index), value}
+      end)
+      |> Map.new()
+
+    edge_schema = GraphCache.get_edge(relationship)
+    edge_schema.from_graph(params)
   end
 
   defp parse_stats(stats) do
@@ -73,6 +93,9 @@ defmodule Garf.Graph.QueryResult do
 
       "Cached execution: " <> cached_execution, acc ->
         Map.put(acc, :cached_execution, cached_execution)
+
+      _other, acc ->
+        acc
     end)
   end
 end

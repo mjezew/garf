@@ -17,6 +17,16 @@ defmodule Garf.GraphCache do
     cache_lookup(:relationship_types, index)
   end
 
+  def get_node(key) do
+    [{_key, nodes}] = :ets.lookup(__MODULE__, :nodes)
+    Map.get(nodes, key)
+  end
+
+  def get_edge(key) do
+    [{_key, edges}] = :ets.lookup(__MODULE__, :edges)
+    Map.get(edges, key)
+  end
+
   defp cache_lookup(identifier, index) do
     case :ets.lookup(__MODULE__, {identifier, index}) do
       [{_key, value}] -> value
@@ -26,6 +36,8 @@ defmodule Garf.GraphCache do
 
   def init(opts) do
     :ets.new(__MODULE__, [:named_table, :protected, read_concurrency: true])
+    :ets.insert(__MODULE__, {:nodes, opts[:nodes]})
+    :ets.insert(__MODULE__, {:edges, opts[:edges]})
     {:ok, %{redix: opts[:redix]}, {:continue, :load_initial_cache}}
   end
 
